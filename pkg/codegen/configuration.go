@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 type AdditionalImport struct {
@@ -242,9 +243,77 @@ type OutputOptions struct {
 
 	// EnableYamlTags adds YAML tags to generated structs, in addition to default JSON ones
 	EnableYamlTags bool `yaml:"yaml-tags,omitempty"`
+
+	// TypeMappings provides the ability to configure how types are mapped
+	// including overriding the default behaviour.
+	// Entries keys are in the format: <schemaType>:<schemaFormat>.
+	//
+	// For instance, if you had the following field:
+	//   id:
+	//     type: string
+	//     format: uuid
+	//
+	// You could then write the following config:
+	//   type-mappings:
+	//     string-uuid:
+	//       go-type: string
+	//       skip-optional-pointer: true
+	//       define-via-alias: true
+	//
+	// Leaving the `go-type` will result in `oapi-codegen` detecting the type,
+	// as it usually attempts to do.
+	//
+	// NOTE: This does not support the ability to import other packages, as per
+	// `x-go-type-import`.
+	TypeMappings map[string]TypeMapping `yaml:"type-mappings,omitempty"`
 }
 
+// Validate checks whether OutputOptions represent a valid configuration
+// It returns nil if the configuration is valid, otherwise it returns a map of problems.
 func (oo OutputOptions) Validate() map[string]string {
+	all := make(map[string]string)
+
+	for k, v := range oo.TypeMappings {
+		if problems := v.Validate(); len(problems) > 0 {
+			joined := make([]string, 0, len(problems))
+			for k2, v2 := range problems {
+				joined = append(joined, k2+" was invalid: "+v2)
+			}
+			all["TypeMappings "+k] = strings.Join(joined, "\n")
+		}
+	}
+
+	if len(all) != 0 {
+		return all
+	}
+
+	return nil
+}
+
+// TypeMapping defines a schema type mapping override.
+type TypeMapping struct {
+	// GoType is the Go type that will be used to represent the schema.
+	GoType *string `yaml:"go-type,omitempty"`
+
+	// SkipOptionalPointer should be set to true if we don't need a pointer
+	// type even when they are optional.
+	SkipOptionalPointer *bool `yaml:"skip-optional-pointer,omitempty"`
+
+	// DefineViaAlias if true schema will declare a type via alias
+	// `type Foo = bool`, otherwise the type definition will be a classic
+	// `type Foo bool`
+	DefineViaAlias *bool `yaml:"define-via-alias,omitempty"`
+}
+
+// Validate checks whether TypeMapping represent a valid configuration.
+// It returns nil if the configuration is valid, otherwise it returns a map of problems.
+func (tm TypeMapping) Validate() map[string]string {
+	if tm.GoType != nil && *tm.GoType == "" {
+		return map[string]string{
+			"GoType": "GoType cannot be empty",
+		}
+	}
+
 	return nil
 }
 
